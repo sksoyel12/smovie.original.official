@@ -1,0 +1,1 @@
+- [Imported Expo mirrors](expo-import-mirrors.md) — conversation-mounted Expo artifacts may need dependency links and path-aware Metro configuration before preview bundles resolve.
