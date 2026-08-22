@@ -1,0 +1,12 @@
+{
+  "expo": {
+    "extra": {
+      "eas": {
+        "projectId": "40703b83-9f37-4a7e-89be-47467148f1ac"
+      }
+    },
+    "android": {
+      "package": "com.soyele.workspace"
+    }
+  }
+}
