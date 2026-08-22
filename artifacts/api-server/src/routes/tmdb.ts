@@ -10,7 +10,7 @@ const TMDB_BASE_URL = "https://api.themoviedb.org/3";
  * secret and forwards the allow-listed TMDB path/query to TMDB.
  */
 router.use("/tmdb", async (req, res) => {
-  const apiKey = process.env.TMDB_API_KEY;
+  const apiKey = process.env.TMDB_API_KEY ?? process.env.TmDB;
   const endpoint = req.path;
 
   if (!apiKey) {
