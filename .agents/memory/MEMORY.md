@@ -1,0 +1,1 @@
+- [TMDB poster proxying](tmdb-poster-proxying.md) — Expo posters must rebuild the complete encoded TMDB image URL through the Replit image proxy first.
