@@ -103,7 +103,7 @@ router.get("/image", async (req, res) => {
  * secret and forwards the allow-listed TMDB path/query to TMDB.
  */
 router.use("/tmdb", async (req, res) => {
-  const apiKey = process.env.TMDB_API_KEY ?? process.env.TmDB;
+  const apiKey = process.env.TMDB_API_KEY;
   const endpoint = req.path;
 
   if (!apiKey) {

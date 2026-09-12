@@ -289,23 +289,6 @@ function mapResults(results: TMDBPage["results"]): CardItem[] {
     });
 }
 
-const HOME_POSTER_ROWS = new Set(["Trending Now", "Meet Your Next Binge", "Your Next Watch"]);
-
-function logHomePosterTrace(title: string, data: TMDBPage): void {
-  if (!__DEV__ || !HOME_POSTER_ROWS.has(title)) return;
-  const first = data.results?.find((item) => Boolean(item.poster_path));
-  const direct = first?.poster_path ? tmdbImg(first.poster_path, "w342") : null;
-  const proxy = direct && API_HOST
-    ? `${API_HOST}/api/image?url=${encodeURIComponent(direct)}`
-    : null;
-
-  console.log("[HOME TMDB] API_HOST=", API_HOST ?? "");
-  console.log("[HOME TMDB] resultCount=", data.results?.length ?? 0);
-  console.log("[HOME TMDB] firstPosterPath=", first?.poster_path ?? "");
-  console.log("[HOME POSTER] direct=", direct ?? "");
-  console.log("[HOME POSTER] proxy=", proxy ?? "");
-}
-
 // Selects the best image URL for a card based on row mode.
 // Priority:
 //   1. API-engine pre-proxied URLs (poster_url / backdrop_url) — bypass TMDB CDN
@@ -560,7 +543,6 @@ export default function MovieRow({
         } else if (tmdbFetcherRef.current) {
           const data = await tmdbFetcherRef.current(1);
           if (cancelled || !mountedRef.current) return;
-          logHomePosterTrace(title, data);
           const raw = mapResults(data.results);
           // ── Rank by live popularity so the TOP 10 badge always reflects the
           // real TMDB score, independent of the display shuffle below ────────

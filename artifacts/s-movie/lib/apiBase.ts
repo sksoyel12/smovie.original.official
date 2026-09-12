@@ -27,7 +27,3 @@ export const API_HOST: string | null = configuredUrl
   : null;
 
 export const API_BASE: string | null = API_HOST ? `${API_HOST}/api` : null;
-
-if (__DEV__) {
-  console.log("[TMDB] API_HOST resolved", API_HOST ?? "null");
-}

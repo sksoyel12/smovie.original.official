@@ -1,15 +1,11 @@
 import { API_HOST } from "@/lib/apiBase";
 
 // ─── Server-side TMDB proxy ────────────────────────────────────────────────────
-// Route all TMDB API calls through our Replit api-server so they work even when
-// api.themoviedb.org is DNS-blocked on the user's ISP. Falls back to direct
-// TMDB calls when EXPO_PUBLIC_DOMAIN is not set (e.g. in unit tests).
+// Route all TMDB API calls through our Replit api-server. The mobile bundle
+// never calls the TMDB API directly and never contains the TMDB API key.
 const _PROXY_HOST = API_HOST;
 const TMDB_PROXY_BASE: string | null = _PROXY_HOST ? `${_PROXY_HOST}/api/tmdb` : null;
 const IMG_BASE = "https://image.tmdb.org/t/p";
-// Keep the external proxy helpers for legacy callers, but poster URLs produced
-// for Home must stay direct so SmartImage can own the retry order.
-const PROXY_PRIMARY = "https://wsrv.nl/?url=";
 
 const FETCH_TIMEOUT_MS = 10000;
 const MAX_RETRIES = 2;
@@ -36,14 +32,11 @@ function _releaseSlot(): void {
   }
 }
 
-/** Wrap a direct image URL through the primary proxy (weserv.nl). */
-export function wrapProxy(directUrl: string, proxy = PROXY_PRIMARY): string {
-  return `${proxy}${directUrl}`;
-}
-
-/** @deprecated use wrapProxy — kept for internal callers */
-function wrapWeserv(directUrl: string): string {
-  return wrapProxy(directUrl, PROXY_PRIMARY);
+/** Build a first-party image URL; TMDB artwork never loads directly in Expo. */
+export function wrapProxy(directUrl: string): string {
+  return API_HOST
+    ? `${API_HOST}/api/image?url=${encodeURIComponent(directUrl)}`
+    : "";
 }
 
 /**
@@ -58,8 +51,8 @@ function wrapWeserv(directUrl: string): string {
  * larger image than it could display.
  */
 export const tmdbImg = (path: string | null | undefined, size = "w342"): string | null => {
-  if (!path) return null;
-  return `${IMG_BASE}/${size}${path}`;
+  if (!path || !API_HOST) return null;
+  return wrapProxy(`${IMG_BASE}/${size}${path}`);
 };
 
 /**
@@ -182,18 +175,23 @@ export async function fetchDetailPosterUri(
 export const proxyUrl = (url: string | null | undefined): string | null => {
   if (!url) return null;
   if (typeof url !== "string") return null;
-  // Already proxied through either proxy
-  if (url.includes("wsrv.nl") || url.includes("weserv.nl")) return url;
-  if (url.startsWith("/")) return tmdbImg(url);
-  if (url.includes("image.tmdb.org")) {
-    const optimized = url.replace("/t/p/original/", "/t/p/w500/");
-    return wrapProxy(optimized);
+  if (url.includes("/api/image?url=")) return url;
+  if (url.includes("wsrv.nl") || url.includes("weserv.nl")) {
+    const match = url.match(/[?&]url=([^&]+)/);
+    if (match) {
+      try {
+        return wrapProxy(decodeURIComponent(match[1]));
+      } catch {
+        return null;
+      }
+    }
+    return null;
   }
+  if (url.startsWith("/")) return tmdbImg(url);
+  if (url.includes("image.tmdb.org")) return wrapProxy(url.replace("/t/p/original/", "/t/p/w500/"));
   if (url.startsWith("http://")) return url.replace("http://", "https://");
   return url;
 };
-
-export { PROXY_PRIMARY };
 
 async function fetchWithTimeout(url: string, options: RequestInit, timeoutMs: number): Promise<Response> {
   const controller = new AbortController();
@@ -209,7 +207,7 @@ async function get<T>(endpoint: string, params: Record<string, string | number> 
   await _acquireSlot();
   let lastError: Error | null = null;
   try {
-    // ── Path 1: server-side proxy (bypasses ISP blocks on api.themoviedb.org) ──
+    // ── Server-side proxy only; never fall back to a client-side TMDB call. ──
     if (TMDB_PROXY_BASE) {
       const url = new URL(`${TMDB_PROXY_BASE}${endpoint}`);
       for (const [k, v] of Object.entries(params)) url.searchParams.set(k, String(v));
@@ -229,7 +227,6 @@ async function get<T>(endpoint: string, params: Record<string, string | number> 
             if (res.status === 429) { await new Promise((r) => setTimeout(r, attempt * 1200)); continue; }
             throw lastError;
           }
-          if (__DEV__) console.log("[HOME TMDB] endpoint=", url.toString());
           const data = (await res.json()) as T;
           return data;
         } catch (err) {
@@ -237,7 +234,8 @@ async function get<T>(endpoint: string, params: Record<string, string | number> 
           if (attempt < MAX_RETRIES) await new Promise((r) => setTimeout(r, 600 * attempt));
         }
       }
-      // Keep the API key server-side; do not make a direct client request.
+    } else {
+      lastError = new Error("TMDB server proxy is not configured.");
     }
   } finally {
     _releaseSlot();
@@ -1752,9 +1750,8 @@ export const tmdb = {
 };
 
 /**
- * Proxy-aware TMDB fetch — routes through the server proxy first, falls back
- * to direct api.themoviedb.org. Use this in any file that previously made its
- * own direct TMDB fetch calls, to keep all API calls consolidated here.
+ * Server-only TMDB fetch. Use this in any file that previously made its own
+ * direct TMDB fetch call so all API calls stay behind the API server.
  */
 export async function tmdbGet<T = unknown>(
   path: string,
@@ -1776,8 +1773,8 @@ export function tmdbToCard(m: TMDBMovie): {
   tmdbId: number;
   mediaType: "movie" | "tv";
 } {
-  const posterUrl = m.poster_url ?? tmdbImg(m.poster_path, "w342");
-  const heroUrl = m.backdrop_url ?? tmdbImg(m.backdrop_path, "w780");
+  const posterUrl = tmdbImg(m.poster_path, "w342");
+  const heroUrl = tmdbImg(m.backdrop_path, "w780");
   const title = m.title ?? m.name ?? "Untitled";
   const genres = (m.genre_ids ?? [])
     .slice(0, 3)

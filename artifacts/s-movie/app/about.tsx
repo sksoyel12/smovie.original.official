@@ -23,6 +23,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { GOOGLE_USER_KEY } from "@/app/(tabs)/profile";
+import { API_BASE } from "@/lib/apiBase";
 import { getIdentity } from "@/lib/identity";
 
 /** Same key used by lib/deviceFingerprint.ts — shares the same stable UUID */
@@ -311,10 +312,11 @@ export default function AboutScreen() {
         // TMDB API reachability
         const tmdbStart = Date.now();
         try {
-          await fetch("https://api.themoviedb.org/3/configuration", {
-            method: "HEAD",
+          if (!API_BASE) throw new Error("TMDB server proxy unavailable");
+          const tmdbResponse = await fetch(`${API_BASE}/tmdb/configuration`, {
             cache: "no-store",
           });
+          if (!tmdbResponse.ok) throw new Error(`TMDB server proxy returned ${tmdbResponse.status}`);
           results.push({
             label: "TMDB API",
             value: `Reachable (${Date.now() - tmdbStart} ms)`,

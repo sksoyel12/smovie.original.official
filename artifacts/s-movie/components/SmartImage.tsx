@@ -5,8 +5,7 @@
  *
  * Retry chain for TMDB artwork:
  *   1. /api/image      ← Replit server proxy with the complete encoded TMDB URL
- *   2. direct image.tmdb.org
- *   4. All failed → placeholder
+ *   2. All failed → placeholder
  *
  * Each attempt gets 2.5s before stepping to the next.
  * expo-image's disk cache keeps successfully loaded images available across
@@ -89,12 +88,11 @@ function buildAttemptUrls(rawUri: string | undefined, directUrl: string | undefi
     urls.push(buildProxyUrl(directUrl, SERVER_PROXY, getRequestedSize(directUrl)));
   }
 
-  // Preserve the original URL for non-TMDB assets. Home TMDB posters never
-  // enter a wsrv.nl/weserv.nl retry path.
+  // Preserve the original URL for non-TMDB assets. TMDB artwork must stay
+  // behind the first-party image proxy.
   if (!isTmdb && (rawUri?.startsWith("http://") || rawUri?.startsWith("https://"))) {
     urls.push(rawUri);
   }
-  urls.push(directUrl);
   return [...new Set(urls)];
 }
 
@@ -168,9 +166,6 @@ export default function SmartImage({
 
   const handleError = useCallback(() => {
     if (timeoutRef.current) clearTimeout(timeoutRef.current);
-    if (isTmdb) {
-      console.log("[TMDB IMAGE] load error", { uri: currentUri, step });
-    }
     const nextStep = step + 1;
     if (nextStep < attemptUrls.length) {
       setStep(nextStep);
@@ -184,10 +179,7 @@ export default function SmartImage({
   const handleLoad = useCallback(() => {
     if (timeoutRef.current) clearTimeout(timeoutRef.current);
     setIsLoading(false);
-    if (isTmdb) {
-      console.log("[TMDB IMAGE] load success", { uri: currentUri });
-    }
-  }, [currentUri, isTmdb]);
+  }, []);
 
   // Per-step timeout: advance through the proxy chain when a request stalls.
   useEffect(() => {
@@ -199,19 +191,8 @@ export default function SmartImage({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step, directUrl, loadFailed]);
 
-  useEffect(() => {
-    if (isTmdb && directUrl) {
-      console.log("[TMDB POSTER URL] final URL", currentUri);
-      console.log("[IMAGE_PROXY]", {
-        step,
-        sourceUrl: directUrl,
-        requestUrl: currentUri,
-      });
-    }
-  }, [currentUri, directUrl, isTmdb, step]);
-
   // No usable URI at all — show a useful fallback rather than a blank card.
-  if (!directUrl) {
+  if (!directUrl || !currentUri) {
     return (
       <View style={[styles.wrap, styles.failBg, styles.failCenter, style]}>
         <Ionicons name="film-outline" size={26} color="#526274" />

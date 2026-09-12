@@ -11,7 +11,7 @@ import {
 } from "react-native";
 import { router } from "expo-router";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { tmdbImg } from "@/lib/tmdb";
+import { tmdb, tmdbImg } from "@/lib/tmdb";
 import SmartImage from "@/components/SmartImage";
 import { haptic } from "@/lib/haptics";
 import { Ionicons } from "@expo/vector-icons";
@@ -91,9 +91,7 @@ Use only well-known titles with accurate TMDB IDs. No placeholder IDs.`;
       if (!item.tmdbId || !item.title) continue;
       try {
         const mt = item.mediaType ?? mediaType;
-        const detail = await fetch(
-          `https://api.themoviedb.org/3/${mt}/${item.tmdbId}?api_key=352d8760f635c2200e3a64ac8ea64fb0`
-        ).then((r) => r.json());
+        const detail = await tmdb.detail(mt, item.tmdbId);
         if (!detail?.poster_path) continue;
         cards.push({
           id: `tmdb-${item.tmdbId}`,

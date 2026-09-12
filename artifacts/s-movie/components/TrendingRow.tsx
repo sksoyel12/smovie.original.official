@@ -2,7 +2,7 @@
  * TrendingRow — "Trending Now" premium horizontal row.
  *
  * Data source: our own API engine at /api/stream/recent (server-side TMDB
- * proxy) so this row works even when api.themoviedb.org is DNS-blocked.
+ * proxy), so the client never contacts the external TMDB API directly.
  * Falls back to a graceful empty/error state — never leaves a blank space.
  */
 import { router } from "expo-router";
