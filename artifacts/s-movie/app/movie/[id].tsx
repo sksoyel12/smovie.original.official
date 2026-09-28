@@ -88,6 +88,40 @@ function formatEpisodeDate(value?: string | null): string {
   }).format(date);
 }
 
+function mapCertification(value?: string | null): string | null {
+  const raw = value?.trim();
+  if (!raw) return null;
+
+  const normalized = raw.toUpperCase().replace(/\s+/g, " ");
+  const indianUa = normalized.match(/^U\/?A\s*(\d{1,2})\s*\+?$/);
+  if (indianUa) return `U/A ${indianUa[1]}+`;
+  if (normalized === "U" || normalized === "G" || normalized === "PG") return "U/A 13+";
+  if (normalized === "UA" || normalized === "U/A") return "U/A 13+";
+  if (normalized === "PG-13" || normalized === "TV-14") return "U/A 13+";
+  if (normalized === "R" || normalized === "NC-17" || normalized === "TV-MA" || normalized === "A") return "A";
+  return raw;
+}
+
+function pickCertification(
+  data:
+    | { results?: Array<{ iso_3166_1?: string; release_dates?: Array<{ certification?: string }> }> }
+    | { results?: Array<{ iso_3166_1?: string; rating?: string }> },
+  mediaType: "movie" | "tv",
+): string | null {
+  const results = data.results ?? [];
+  const region =
+    results.find((entry) => entry.iso_3166_1 === "IN") ??
+    results.find((entry) => entry.iso_3166_1 === "US") ??
+    results[0];
+  if (!region) return null;
+
+  if (mediaType === "movie") {
+    const releaseDates = (region as { release_dates?: Array<{ certification?: string }> }).release_dates ?? [];
+    return mapCertification(releaseDates.find((entry) => entry.certification?.trim())?.certification);
+  }
+  return mapCertification((region as { rating?: string }).rating);
+}
+
 type CachedTMDBDetail = {
   detail: TMDBDetail;
   type: DetailMediaType;
@@ -351,6 +385,8 @@ export default function MovieDetail() {
   const [watchProviders, setWatchProviders] = useState<Array<{ logo_path: string; provider_name: string; provider_id: number }>>([]);
   // IMDb external ID for linking
   const [imdbId, setImdbId] = useState<string | null>(null);
+  // TMDB regional content certification used by the Netflix-style metadata row
+  const [contentCertification, setContentCertification] = useState<string | null>(null);
   // Movie franchise / collection data
   const [collectionData, setCollectionData] = useState<MovieCollection | null>(null);
   const [collectionLoading, setCollectionLoading] = useState(false);
@@ -438,10 +474,22 @@ export default function MovieDetail() {
     } catch { return false; }
   }, [tmdbDetail]);
 
-  // Formatted metadata label — runtime for movies, episode count for TV.
-  // Avoid showing only "1 Season" because the detail page is episode-focused.
+  const releaseYear = useMemo(() => {
+    const date = tmdbDetail?.release_date ?? tmdbDetail?.first_air_date;
+    const year = date?.slice(0, 4) ?? String(movie?.year ?? "");
+    return /^\d{4}$/.test(year) ? year : "";
+  }, [tmdbDetail, movie?.year]);
+
+  // Formatted metadata label — runtime for movies, seasons/episode count for TV.
   const durationLabel = useMemo(() => {
     if (isTV) {
+      const isLimitedSeries =
+        tmdbDetail?.type?.toLowerCase() === "miniseries" ||
+        /limited[\s-]*series|miniseries/i.test(movie?.duration ?? "");
+      const seasons = tmdbDetail?.number_of_seasons ?? (movie as any)?.seasons ?? 0;
+      if (isLimitedSeries) return "Limited Series";
+      if (seasons > 0) return `${seasons} Season${seasons !== 1 ? "s" : ""}`;
+
       const detailEpisodeCount = tmdbDetail?.number_of_episodes
         ?? tmdbDetail?.seasons?.reduce((total, season) => total + (season.episode_count ?? 0), 0)
         ?? 0;
@@ -449,13 +497,35 @@ export default function MovieDetail() {
       const episodeCount = detailEpisodeCount || localEpisodeCount;
       return episodeCount > 0
         ? `${episodeCount} Episode${episodeCount !== 1 ? "s" : ""}`
-        : "Episodes";
+        : "";
     }
     const mins = tmdbDetail?.runtime ?? 0;
-    if (mins >= 60) return `${Math.floor(mins / 60)}h ${mins % 60}m`;
+    if (mins >= 60) {
+      const hours = Math.floor(mins / 60);
+      const remainingMinutes = mins % 60;
+      return remainingMinutes > 0 ? `${hours}h ${remainingMinutes}m` : `${hours}h`;
+    }
     if (mins > 0) return `${mins}m`;
-    return movie?.duration ?? "—";
-  }, [isTV, tmdbDetail, movie, seasonNumbers.length]);
+    return movie?.duration ?? "";
+  }, [isTV, tmdbDetail, movie, tmdbEpisodes.length]);
+
+  const highlightStatus = useMemo(() => {
+    const nextEpisodeDate = tmdbDetail?.next_episode_to_air?.air_date;
+    if (isTV && nextEpisodeDate) {
+      const formattedDate = formatEpisodeDate(nextEpisodeDate);
+      return formattedDate ? `New episode coming on ${formattedDate}` : null;
+    }
+    if (isTV && tmdbDetail?.status === "Returning Series") {
+      return "It's official: Another season is coming";
+    }
+    if (tmdbDetail?.status === "Post Production") return "Coming soon";
+    if (isComingSoon) {
+      const date = tmdbDetail?.release_date ?? tmdbDetail?.first_air_date;
+      const formattedDate = formatEpisodeDate(date);
+      return formattedDate ? `Coming on ${formattedDate}` : "Coming soon";
+    }
+    return null;
+  }, [isComingSoon, isTV, tmdbDetail]);
 
   // Download action label — mirrors active season + episode selector
   const downloadActionLabel = useMemo(() => {
@@ -837,6 +907,25 @@ export default function MovieDetail() {
 
     return () => { cancelled = true; };
   }, [numericTmdbId, isTV]);
+
+  // Fetch the regional content certification for the metadata pill.
+  useEffect(() => {
+    if (!tmdbId) {
+      setContentCertification(null);
+      return;
+    }
+    let cancelled = false;
+    const mediaType = isTV ? "tv" : "movie";
+    setContentCertification(null);
+    tmdb.certifications(mediaType, tmdbId)
+      .then((data) => {
+        if (!cancelled) setContentCertification(pickCertification(data, mediaType));
+      })
+      .catch(() => {
+        if (!cancelled) setContentCertification(mapCertification(movie?.rating));
+      });
+    return () => { cancelled = true; };
+  }, [isTV, movie?.rating, tmdbId]);
 
   // Fetch the official movie franchise collection when tmdbDetail resolves.
   // Collection data is cached separately so a previously opened franchise
@@ -1353,13 +1442,38 @@ export default function MovieDetail() {
           {/* Title */}
            <Text style={styles.title}>{movie?.title ?? title_param ?? ""}</Text>
 
-          {/* Metadata row */}
-          <View style={styles.metaRow}>
-            {movie?.year ? <Text style={styles.metaYear}>{movie.year}</Text> : null}
+          {/* Netflix-style metadata row — kept on one horizontal line */}
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            style={styles.metaRowScroll}
+            contentContainerStyle={styles.metaRow}
+          >
+            {releaseYear ? <Text style={styles.metaYear}>{releaseYear}</Text> : null}
+            {contentCertification ? (
+              <View style={styles.ratingPill}>
+                <Text style={styles.ratingText}>{contentCertification}</Text>
+              </View>
+            ) : null}
             {durationLabel ? <Text style={styles.metaDur}>{durationLabel}</Text> : null}
-            <View style={styles.metaBadge}><Text style={styles.metaBadgeText}>HD</Text></View>
-            <View style={styles.metaBadge}><Text style={styles.metaBadgeText}>CC</Text></View>
-          </View>
+            <View style={styles.metaBadge}>
+              <Text style={styles.metaBadgeText}>HD</Text>
+            </View>
+            <View style={styles.metaAudioBadge}>
+              <Ionicons name="volume-high-outline" size={12} color="#bcbcbc" />
+              <Text style={styles.metaBadgeText}>Spatial Audio</Text>
+            </View>
+            <View style={styles.metaIconBadge} accessibilityLabel="Audio description available">
+              <Text style={styles.metaIconText}>AD</Text>
+            </View>
+            <View style={styles.metaIconBadge} accessibilityLabel="Closed captions available">
+              <Ionicons name="closed-captioning-outline" size={14} color="#bcbcbc" />
+            </View>
+          </ScrollView>
+
+          {highlightStatus ? (
+            <Text style={styles.highlightStatus}>{highlightStatus}</Text>
+          ) : null}
 
 
           {/* Play — solid red / Coming Soon badge */}
@@ -2114,8 +2228,10 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
+    paddingRight: 16,
+  },
+  metaRowScroll: {
     marginBottom: 10,
-    flexWrap: "wrap",
   },
   // New in 2024 Netflix: year is slightly brighter gray
   metaYear: { color: "#bcbcbc", fontSize: 14, fontFamily: "Inter_500Medium" },
@@ -2146,6 +2262,38 @@ const styles = StyleSheet.create({
     borderRadius: 3,
   },
   metaBadgeText: { color: "#bcbcbc", fontSize: 10, fontFamily: "Inter_700Bold", letterSpacing: 0.8 },
+  metaAudioBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.22)",
+    borderRadius: 3,
+  },
+  metaIconBadge: {
+    width: 26,
+    height: 21,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.30)",
+    borderRadius: 3,
+  },
+  metaIconText: {
+    color: "#bcbcbc",
+    fontSize: 9,
+    fontFamily: "Inter_700Bold",
+    letterSpacing: 0.5,
+  },
+  highlightStatus: {
+    color: "#ffffff",
+    fontSize: 14,
+    lineHeight: 19,
+    fontFamily: "Inter_600SemiBold",
+    marginBottom: 12,
+  },
   metaBadgeHindi: {
     backgroundColor: "rgba(255, 103, 0, 0.15)",
     borderColor: "rgba(255, 103, 0, 0.55)",

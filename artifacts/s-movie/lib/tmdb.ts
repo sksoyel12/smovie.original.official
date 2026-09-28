@@ -511,6 +511,13 @@ export interface TMDBDetail {
   first_air_date?: string;
   original_language?: string;
   spoken_languages?: { iso_639_1: string; english_name?: string; name?: string }[];
+  type?: string;
+  status?: string;
+  next_episode_to_air?: {
+    air_date?: string | null;
+    episode_number?: number;
+    season_number?: number;
+  } | null;
   belongs_to_collection?: {
     id: number;
     name: string;
@@ -701,6 +708,17 @@ export const tmdb = {
 
   detail: (type: "movie" | "tv", id: number): Promise<TMDBDetail> =>
     get<TMDBDetail>(`/${type}/${id}`),
+
+  certifications: (
+    type: "movie" | "tv",
+    id: number,
+  ): Promise<
+    | { results?: Array<{ iso_3166_1?: string; release_dates?: Array<{ certification?: string }> }> }
+    | { results?: Array<{ iso_3166_1?: string; rating?: string }> }
+  > =>
+    type === "movie"
+      ? get(`/movie/${id}/release_dates`)
+      : get(`/tv/${id}/content_ratings`),
 
   watchProviders: (
     type: "movie" | "tv",
