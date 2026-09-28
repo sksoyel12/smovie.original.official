@@ -38,6 +38,7 @@ import { HOME_CACHE_TTL_MS }      from "@/lib/homeCache";
 
 import { MyListProvider } from "@/contexts/MyListContext";
 import { DownloadProvider } from "@/contexts/DownloadContext";
+import { NetworkProvider } from "@/contexts/NetworkContext";
 import { ProfileProvider } from "@/contexts/ProfileContext";
 import { LanguageProvider } from "@/contexts/LanguageContext";
 import { UserPreferencesProvider } from "@/contexts/UserPreferencesContext";
@@ -545,6 +546,7 @@ export default function RootLayout() {
   // bootReady timer above.
   return (
     <SafeAreaProvider>
+      <NetworkProvider>
       <ErrorBoundary>
         <LanguageProvider>
         <ProfileProvider>
@@ -590,6 +592,7 @@ export default function RootLayout() {
         </ProfileProvider>
         </LanguageProvider>
       </ErrorBoundary>
+      </NetworkProvider>
     </SafeAreaProvider>
   );
 }

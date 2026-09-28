@@ -1,4 +1,4 @@
-import { Bell, Download } from "lucide-react-native";
+import { Bell, CloudOff, Download } from "lucide-react-native";
 import { router } from "expo-router";
 import React from "react";
 import {
@@ -14,6 +14,8 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { haptic } from "@/lib/haptics";
+import { useDownloads } from "@/contexts/DownloadContext";
+import { useNetworkStatus } from "@/contexts/NetworkContext";
 
 export type Tab = "Shows" | "Movies" | "Anime" | "New & Hot";
 
@@ -34,6 +36,8 @@ const SF_PRO_DISPLAY_FAMILY =
 
 export default function Header({ activeTab, onTabChange, hasUnread = false, scrollY }: Props) {
   const insets = useSafeAreaInsets();
+  const { isOffline } = useNetworkStatus();
+  const { downloadingCount } = useDownloads();
   const topPad = Platform.OS === "web" ? Math.max(insets.top, 12) : insets.top;
 
   const activeScroll = scrollY ?? _fallbackScroll;
@@ -71,11 +75,17 @@ export default function Header({ activeTab, onTabChange, hasUnread = false, scro
 
         <View style={styles.iconsRow}>
           <Pressable
+            onPress={() => { haptic.light(); router.push("/downloads"); }}
             style={({ pressed }) => [styles.iconBtn, pressed && { opacity: 0.55 }]}
             hitSlop={10}
             accessibilityLabel="Downloads"
           >
             <Download size={22} color="#e5e5e5" strokeWidth={2.1} />
+            {downloadingCount > 0 && (
+              <View style={styles.badge}>
+                <Text style={styles.badgeText}>{downloadingCount}</Text>
+              </View>
+            )}
           </Pressable>
 
           <Pressable
@@ -88,6 +98,12 @@ export default function Header({ activeTab, onTabChange, hasUnread = false, scro
             {hasUnread && <View style={styles.badge} />}
           </Pressable>
 
+          {isOffline && (
+            <View style={styles.offlinePill} accessibilityLabel="Offline. Cached content is available.">
+              <CloudOff size={14} color="#FBBF24" strokeWidth={2.2} />
+              <Text style={styles.offlineText}>Offline</Text>
+            </View>
+          )}
         </View>
       </View>
 
@@ -215,6 +231,28 @@ const styles = StyleSheet.create({
     backgroundColor: "#E50914",
     borderWidth: 1.5,
     borderColor: "#000000",
+  },
+  badgeText: {
+    color: "#fff",
+    fontSize: 8,
+    fontWeight: "800",
+    textAlign: "center",
+  },
+  offlinePill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 7,
+    paddingVertical: 5,
+    borderRadius: 10,
+    backgroundColor: "rgba(251,191,36,0.12)",
+    borderWidth: 1,
+    borderColor: "rgba(251,191,36,0.3)",
+  },
+  offlineText: {
+    color: "#FBBF24",
+    fontSize: 10,
+    fontFamily: "Inter_700Bold",
   },
   scrollBgWebTransition: {
     transition: "background-color 0.3s ease",

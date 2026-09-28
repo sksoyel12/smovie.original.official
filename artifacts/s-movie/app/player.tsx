@@ -327,8 +327,9 @@ export default function PlayerScreen() {
 
     const loadStream = async () => {
       // ── Step 1: Local download ────────────────────────────────────────────────
-      if (movie) {
-        const rec = await getDownloadRecord(movie.id).catch(() => null);
+      const localMovieId = id || movie?.id;
+      if (localMovieId) {
+        const rec = await getDownloadRecord(localMovieId).catch(() => null);
         if (!cancelled && rec?.status === "complete" && rec.localPath) {
           setStreamResult({
             url: rec.localPath,

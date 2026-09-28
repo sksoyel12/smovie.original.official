@@ -18,6 +18,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { haptic } from "@/lib/haptics";
 import { markAllViewed } from "@/lib/notificationPrefs";
 import { tmdb, tmdbToCard, type TMDBMovie } from "@/lib/tmdb";
+import { useNetworkStatus } from "@/contexts/NetworkContext";
 
 // ─── Local storage key ────────────────────────────────────────────────────────
 const NOTIF_CACHE_KEY = "smovie_notif_rows_v3";
@@ -195,6 +196,7 @@ function NotifRow({ item, index }: { item: NotifRow; index: number }) {
 // ─── Main screen ─────────────────────────────────────────────────────────────
 export default function NotificationsScreen() {
   const insets = useSafeAreaInsets();
+  const { isOffline } = useNetworkStatus();
   const [rows, setRows]               = useState<NotifRow[]>([]);
   const [loading, setLoading]         = useState(true);
   const [refreshing, setRefreshing]   = useState(false);
@@ -211,11 +213,12 @@ export default function NotificationsScreen() {
     AsyncStorage.getItem(NOTIF_CACHE_KEY).then((raw) => {
       if (!raw) return;
       try {
-        const { rows: cached, savedAt } = JSON.parse(raw);
+         const { rows: cached } = JSON.parse(raw);
         if (cached?.length) {
           setRows(cached);
-          // Skip network fetch if cache is fresh
-          if (Date.now() - savedAt < NOTIF_CACHE_TTL) setLoading(false);
+          // Even an expired cache is useful offline. The request below
+          // revalidates it when a connection is available.
+          setLoading(false);
         }
       } catch {}
     }).catch(() => {});
@@ -223,6 +226,12 @@ export default function NotificationsScreen() {
 
   const fetchData = useCallback(async () => {
     setError(null);
+    if (isOffline) {
+      setError("You're offline. Showing saved notifications.");
+      setLoading(false);
+      setRefreshing(false);
+      return;
+    }
     try {
       // Fetch all 4 TMDB sources in parallel
       const [trendingDay, trendingWeek, upcomingRes, popularTVRes] = await Promise.all([
@@ -283,7 +292,7 @@ export default function NotificationsScreen() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, []);
+  }, [isOffline]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
 

@@ -1,0 +1,1 @@
+- [Offline playback lookup](offline-playback.md) — resolve completed local downloads from the route ID before relying on the static catalog.

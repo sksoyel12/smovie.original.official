@@ -15,6 +15,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useDownloads, type ManagedDownload } from "@/contexts/DownloadContext";
+import { useNetworkStatus } from "@/contexts/NetworkContext";
 import { haptic } from "@/lib/haptics";
 import { getStorageInfo, formatBytes, formatGB, type StorageInfo } from "@/lib/storage";
 
@@ -311,6 +312,7 @@ export default function DownloadsScreen() {
     (Platform.OS === "web" ? Math.max(insets.top, 12) : insets.top) + 12;
 
   const { downloads, removeDownload, refreshDownloads } = useDownloads();
+  const { isOffline } = useNetworkStatus();
   const [storageInfo, setStorageInfo] = useState<StorageInfo | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -420,6 +422,14 @@ export default function DownloadsScreen() {
           </Pressable>
         )}
       </View>
+      {isOffline && (
+        <View style={styles.offlineBanner}>
+          <Ionicons name="cloud-offline-outline" size={15} color="#FBBF24" />
+          <Text style={styles.offlineBannerText}>
+            Offline mode · Downloaded titles remain available
+          </Text>
+        </View>
+      )}
 
       {storageInfo && <StorageBar info={storageInfo} />}
 
@@ -499,6 +509,25 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontFamily: "Inter_400Regular",
     marginTop: 2,
+  },
+  offlineBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 7,
+    marginHorizontal: 16,
+    marginBottom: 10,
+    paddingHorizontal: 11,
+    paddingVertical: 8,
+    borderRadius: 8,
+    backgroundColor: "rgba(251,191,36,0.1)",
+    borderWidth: 1,
+    borderColor: "rgba(251,191,36,0.28)",
+  },
+  offlineBannerText: {
+    flex: 1,
+    color: "#D4D4D4",
+    fontSize: 12,
+    fontFamily: "Inter_600SemiBold",
   },
   clearBtn: {
     paddingHorizontal: 14,

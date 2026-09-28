@@ -511,6 +511,12 @@ export interface TMDBDetail {
   first_air_date?: string;
   original_language?: string;
   spoken_languages?: { iso_639_1: string; english_name?: string; name?: string }[];
+  belongs_to_collection?: {
+    id: number;
+    name: string;
+    poster_path: string | null;
+    backdrop_path: string | null;
+  } | null;
 }
 
 export interface TMDBTranslationsResponse {

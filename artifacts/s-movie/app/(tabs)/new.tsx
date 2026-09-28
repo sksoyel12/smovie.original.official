@@ -17,9 +17,9 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { haptic } from "@/lib/haptics";
 import { tmdb, tmdbImg, type TMDBMovie } from "@/lib/tmdb";
+import { useNetworkStatus } from "@/contexts/NetworkContext";
 
 const NEW_HOT_CACHE_KEY = "smovie_new_hot_v5";
-const NEW_HOT_CACHE_TTL = 5 * 60 * 1000;
 const REMIND_KEY_PREFIX = "smovie_remind_v2_";
 const { width: SCREEN_W } = Dimensions.get("window");
 const BACKDROP_HEIGHT = Math.round((SCREEN_W - 28) * 9 / 16);
@@ -92,10 +92,12 @@ function ChipHeader({
   activeFilter,
   onChange,
   topInset,
+  showCachedNotice,
 }: {
   activeFilter: Filter;
   onChange: (filter: Filter) => void;
   topInset: number;
+  showCachedNotice: boolean;
 }) {
   return (
     <View style={[styles.stickyHeader, { paddingTop: topInset + 12 }]}>
@@ -132,6 +134,12 @@ function ChipHeader({
           </Text>
         </Pressable>
       </ScrollView>
+      {showCachedNotice && (
+        <View style={styles.cacheNotice}>
+          <Ionicons name="cloud-offline-outline" size={14} color="#FBBF24" />
+          <Text style={styles.cacheNoticeText}>Offline · Showing saved titles</Text>
+        </View>
+      )}
     </View>
   );
 }
@@ -217,6 +225,7 @@ function FeedCard({
 
 export default function NewAndHotScreen() {
   const insets = useSafeAreaInsets();
+  const { isOffline } = useNetworkStatus();
   const topInset = Math.max(insets.top, 12);
   const [activeFilter, setActiveFilter] = useState<Filter>("comingSoon");
   const [comingSoon, setComingSoon] = useState<FeedItem[]>([]);
@@ -225,6 +234,7 @@ export default function NewAndHotScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [usingCachedFeed, setUsingCachedFeed] = useState(false);
 
   const loadReminders = useCallback(async () => {
     try {
@@ -241,6 +251,12 @@ export default function NewAndHotScreen() {
 
   const fetchData = useCallback(async () => {
     setError(null);
+    if (isOffline) {
+      setLoading(false);
+      setRefreshing(false);
+      setUsingCachedFeed(true);
+      return;
+    }
     try {
       const [comingResponse, trendingResponse] = await Promise.all([
         tmdb.netflixComingSoonTV(1),
@@ -258,17 +274,19 @@ export default function NewAndHotScreen() {
       const trending = candidates.slice(0, 24);
       setComingSoon(coming);
       setEveryonesWatching(trending);
+      setUsingCachedFeed(false);
       await AsyncStorage.setItem(
         NEW_HOT_CACHE_KEY,
         JSON.stringify({ comingSoon: coming, everyonesWatching: trending, savedAt: Date.now() }),
       );
     } catch {
       setError("Couldn’t load content. Pull down to try again.");
+      setUsingCachedFeed(true);
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, []);
+  }, [isOffline]);
 
   useEffect(() => {
     loadReminders();
@@ -280,9 +298,12 @@ export default function NewAndHotScreen() {
           everyonesWatching?: FeedItem[];
           savedAt?: number;
         };
-        if (Date.now() - (cached.savedAt ?? 0) < NEW_HOT_CACHE_TTL) {
-          if (cached.comingSoon?.length) setComingSoon(cached.comingSoon);
-          if (cached.everyonesWatching?.length) setEveryonesWatching(cached.everyonesWatching);
+        // Stale data is still useful when the device is offline. The network
+        // request below revalidates it when possible.
+        if (cached.comingSoon?.length) setComingSoon(cached.comingSoon);
+        if (cached.everyonesWatching?.length) setEveryonesWatching(cached.everyonesWatching);
+        if (cached.comingSoon?.length || cached.everyonesWatching?.length) {
+          setUsingCachedFeed(true);
           setLoading(false);
         }
       })
@@ -329,7 +350,12 @@ export default function NewAndHotScreen() {
           ) : <LoadingCard />
         }
         ListHeaderComponent={
-          <ChipHeader activeFilter={activeFilter} onChange={setActiveFilter} topInset={topInset} />
+          <ChipHeader
+            activeFilter={activeFilter}
+            onChange={setActiveFilter}
+            topInset={topInset}
+            showCachedNotice={(isOffline || usingCachedFeed) && items.length > 0}
+          />
         }
         stickyHeaderIndices={[0]}
         showsVerticalScrollIndicator={false}
@@ -375,6 +401,19 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   chipsContent: { gap: 8, paddingRight: 16 },
+  cacheNotice: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginTop: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    borderRadius: 8,
+    backgroundColor: "rgba(251,191,36,0.1)",
+    borderWidth: 1,
+    borderColor: "rgba(251,191,36,0.28)",
+  },
+  cacheNoticeText: { color: "#D4D4D4", fontSize: 12, fontFamily: "Inter_600SemiBold" },
   filterChip: {
     flexDirection: "row",
     alignItems: "center",

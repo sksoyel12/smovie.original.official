@@ -95,6 +95,26 @@ type CachedTMDBDetail = {
   heroUri: string | null;
 };
 
+type MovieCollection = {
+  id: number;
+  name: string;
+  overview: string;
+  parts: Array<{
+    id: number;
+    title: string;
+    poster_path: string | null;
+    release_date: string;
+    vote_average: number;
+    overview: string;
+  }>;
+};
+
+const COLLECTION_CACHE_PREFIX = "smovie_collection_v1_";
+
+function collectionCacheKey(id: number): string {
+  return `${COLLECTION_CACHE_PREFIX}${id}`;
+}
+
 function buildDynamicMovie(
   routeId: string,
   cached: CachedTMDBDetail,
@@ -332,10 +352,8 @@ export default function MovieDetail() {
   // IMDb external ID for linking
   const [imdbId, setImdbId] = useState<string | null>(null);
   // Movie franchise / collection data
-  const [collectionData, setCollectionData] = useState<{
-    id: number; name: string; overview: string;
-    parts: Array<{ id: number; title: string; poster_path: string | null; release_date: string; vote_average: number; overview: string }>;
-  } | null>(null);
+  const [collectionData, setCollectionData] = useState<MovieCollection | null>(null);
+  const [collectionLoading, setCollectionLoading] = useState(false);
 
   // Episode navigation — track which episode is actively selected/playing
   const [selectedEpisodeIdx, setSelectedEpisodeIdx] = useState<number>(0);
@@ -820,16 +838,45 @@ export default function MovieDetail() {
     return () => { cancelled = true; };
   }, [numericTmdbId, isTV]);
 
-  // Fetch movie franchise collection when tmdbDetail resolves
+  // Fetch the official movie franchise collection when tmdbDetail resolves.
+  // Collection data is cached separately so a previously opened franchise
+  // remains usable when the device is offline.
   useEffect(() => {
-    const col = (tmdbDetail as any)?.belongs_to_collection;
-    if (!col?.id) { setCollectionData(null); return; }
+    const col = tmdbDetail?.belongs_to_collection;
+    if (!col?.id || isTV) {
+      setCollectionData(null);
+      setCollectionLoading(false);
+      return;
+    }
     let cancelled = false;
-    tmdbGet<{ id: number; name: string; overview: string; parts: any[] }>(`/collection/${col.id}`)
-      .then((data) => { if (!cancelled) setCollectionData(data); })
-      .catch(() => { if (!cancelled) setCollectionData(null); });
+    setCollectionLoading(true);
+
+    (async () => {
+      try {
+        const cached = await AsyncStorage.getItem(collectionCacheKey(col.id));
+        if (!cancelled && cached) {
+          const parsed = JSON.parse(cached) as MovieCollection;
+          if (parsed?.id === col.id && Array.isArray(parsed.parts)) {
+            setCollectionData(parsed);
+          }
+        }
+      } catch {}
+
+      try {
+        const data = await tmdbGet<MovieCollection>(`/collection/${col.id}`);
+        if (!cancelled && data?.id === col.id && Array.isArray(data.parts)) {
+          setCollectionData(data);
+          AsyncStorage.setItem(collectionCacheKey(col.id), JSON.stringify(data)).catch(() => {});
+        }
+      } catch {
+        // Keep the cached collection, if one was available.
+      } finally {
+        if (!cancelled) setCollectionLoading(false);
+      }
+    })();
+
     return () => { cancelled = true; };
-  }, [tmdbDetail]);
+  }, [isTV, tmdbDetail]);
 
   // Load per-episode watch progress when season episodes load
   useEffect(() => {
@@ -1514,7 +1561,7 @@ export default function MovieDetail() {
                       </Text>
                     </Pressable>
                   )}
-                  {(collectionData !== null || !isTV) && (
+                  {(collectionLoading || Boolean(collectionData?.parts?.length)) && (
                     <Pressable
                       onPress={() => setActiveSection("collection")}
                       style={[styles.sectionTab, activeSection === "collection" && styles.sectionTabActive]}
@@ -1611,7 +1658,12 @@ export default function MovieDetail() {
 
               {activeSection === "collection" && (
                 <View style={styles.collectionSection}>
-                  {collectionData ? (
+                  {collectionLoading && !collectionData ? (
+                    <View style={styles.recEmpty}>
+                      <ActivityIndicator size="small" color="#E50914" />
+                      <Text style={styles.recEmptyText}>Loading collection…</Text>
+                    </View>
+                  ) : collectionData?.parts?.length ? (
                     <>
                       {collectionData.overview ? (
                         <Text style={styles.collectionOverview} numberOfLines={3}>{collectionData.overview}</Text>

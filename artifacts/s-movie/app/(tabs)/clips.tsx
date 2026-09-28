@@ -13,6 +13,7 @@ import React, {
   useRef,
   useState,
 } from "react";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import {
   ActivityIndicator,
   Dimensions,
@@ -37,6 +38,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import SmartImage from "@/components/SmartImage";
 import { tmdb, tmdbImg } from "@/lib/tmdb";
 import { haptic } from "@/lib/haptics";
+import { useNetworkStatus } from "@/contexts/NetworkContext";
 import {
   getCachedVideos,
   setCachedVideos,
@@ -60,6 +62,31 @@ interface ClipItem {
   year: string;
   rating: number;
   genre: string;
+}
+
+const CLIPS_CACHE_KEY = "smovie_clips_feed_v1";
+
+function isClipItem(value: unknown): value is ClipItem {
+  if (!value || typeof value !== "object") return false;
+  const item = value as Partial<ClipItem>;
+  return typeof item.id === "number" &&
+    typeof item.tmdbId === "number" &&
+    typeof item.title === "string" &&
+    (item.mediaType === "movie" || item.mediaType === "tv") &&
+    typeof item.videoKey === "string" &&
+    Boolean(item.backdropUri || item.posterUri);
+}
+
+async function loadClipsCache(): Promise<ClipItem[]> {
+  try {
+    const raw = await AsyncStorage.getItem(CLIPS_CACHE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as { clips?: unknown[] } | unknown[];
+    const items = Array.isArray(parsed) ? parsed : parsed.clips;
+    return Array.isArray(items) ? items.filter(isClipItem) : [];
+  } catch {
+    return [];
+  }
 }
 
 // ─── TMDB video embed ─────────────────────────────────────────────────────────
@@ -373,12 +400,19 @@ const ClipCard = React.memo(function ClipCard({ item, isVisible, isAdjacent }: C
 
 export default function ClipsScreen() {
   const insets = useSafeAreaInsets();
+  const { isOffline } = useNetworkStatus();
   const [clips, setClips] = useState<ClipItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [visibleIndex, setVisibleIndex] = useState(0);
+  const [usingCachedFeed, setUsingCachedFeed] = useState(false);
 
   const fetchClips = useCallback(async () => {
+    if (isOffline) {
+      setLoading(false);
+      setRefreshing(false);
+      return;
+    }
     try {
       const [moviesPage, tvPage] = await Promise.allSettled([
         tmdb.trendingMovies(1),
@@ -436,16 +470,34 @@ export default function ClipsScreen() {
       );
 
       // A card without a TMDB-listed clip/teaser cannot occupy a feed page.
-      setClips(withVideos.filter((c) => c.videoKey && (c.backdropUri || c.posterUri)));
+      const nextClips = withVideos.filter((c) => c.videoKey && (c.backdropUri || c.posterUri));
+      setClips(nextClips);
+      setUsingCachedFeed(false);
+      await AsyncStorage.setItem(
+        CLIPS_CACHE_KEY,
+        JSON.stringify({ clips: nextClips, savedAt: Date.now() }),
+      );
     } catch (e) {
       console.warn("[ClipsScreen] fetch error:", e);
+      setUsingCachedFeed(true);
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, []);
+  }, [isOffline]);
 
-  useEffect(() => { fetchClips(); }, []);
+  useEffect(() => {
+    let cancelled = false;
+    loadClipsCache().then((cached) => {
+      if (cancelled || cached.length === 0) return;
+      setClips(cached);
+      setUsingCachedFeed(true);
+      setLoading(false);
+    }).finally(() => {
+      if (!cancelled) fetchClips();
+    });
+    return () => { cancelled = true; };
+  }, [fetchClips]);
 
   useEffect(() => {
     if (clips.length === 0) return;
@@ -489,6 +541,14 @@ export default function ClipsScreen() {
 
   return (
     <View style={styles.root}>
+      {(isOffline || usingCachedFeed) && clips.length > 0 ? (
+        <View style={[styles.cacheBanner, { top: insets.top + 40 }]}>
+          <Ionicons name="cloud-offline-outline" size={14} color="#FBBF24" />
+          <Text style={styles.cacheBannerText}>
+            {isOffline ? "Offline · Showing saved clips" : "Showing saved clips"}
+          </Text>
+        </View>
+      ) : null}
       {/* Floating header — Instagram Reels style */}
       <View style={[styles.header, { paddingTop: insets.top + 6 }]} pointerEvents="none">
         <Text style={styles.headerTitle}>Clips</Text>
@@ -539,6 +599,22 @@ const styles = StyleSheet.create({
     backgroundColor: "#E50914", borderRadius: 8,
   },
   retryText: { color: "#fff", fontSize: 14, fontWeight: "700" },
+  cacheBanner: {
+    position: "absolute",
+    left: 14,
+    right: 14,
+    zIndex: 250,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    borderRadius: 8,
+    backgroundColor: "rgba(18,18,18,0.88)",
+    borderWidth: 1,
+    borderColor: "rgba(251,191,36,0.3)",
+  },
+  cacheBannerText: { color: "#D4D4D4", fontSize: 12, fontWeight: "600" },
 
   // Floating header
   header: {

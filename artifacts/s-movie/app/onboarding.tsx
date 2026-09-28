@@ -22,6 +22,7 @@ import {
 
 import { PROFILES, useProfile } from "@/contexts/ProfileContext";
 import { tmdb, tmdbImg } from "@/lib/tmdb";
+import { useNetworkStatus } from "@/contexts/NetworkContext";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 type Phase = "splash" | "profiles" | "selecting";
@@ -489,6 +490,7 @@ function AddProfileModal({
 // ─── Main screen ──────────────────────────────────────────────────────────────
 export default function OnboardingScreen() {
   const { mode } = useLocalSearchParams<{ mode?: string }>();
+  const { isOffline } = useNetworkStatus();
   const isBootMode = mode !== "profiles";
   const insets = useSafeAreaInsets();
 
@@ -646,6 +648,11 @@ export default function OnboardingScreen() {
           <Animated.Text style={[styles.tagline, { opacity: tagOpacity }]}>
             ORIGINAL
           </Animated.Text>
+          {isOffline && (
+            <Text style={styles.offlineSplashText}>
+              Offline mode · Saved content is ready
+            </Text>
+          )}
         </Animated.View>
       )}
 
@@ -861,6 +868,12 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     letterSpacing: 5,
     marginTop: 4,
+  },
+  offlineSplashText: {
+    color: "#FBBF24",
+    fontSize: 11,
+    fontFamily: "Inter_600SemiBold",
+    marginTop: 12,
   },
 
   // ── Profiles screen
